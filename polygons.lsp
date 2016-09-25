@@ -1,8 +1,8 @@
 ;*******************************************************************************
-; POLYGONS -- navigation around convex polygons via the shortest path
+; POLYGONS -- navigation around polygons via the shortest path
 ;*******************************************************************************
 
-; Given a starting and ending position on a 2-dimensional plane, and convex
+; Given a starting and ending position on a 2-dimensional plane, and 
 ; polygons that serve as obstacles, find the shortest path from start to end
 ; that doesn't cross a polygon.  The path is allowed to run along a side of
 ; a polygon.  It hasn't been stated whether the path is allowed to squeeze
@@ -21,17 +21,13 @@
 ; of its vertices, because it is legal for a vertex of one polygon to touch
 ; a side of another.)
 
-; This version does not support concave polygons, but trys not to make it hard
-; to add such support later.  There are some tricky special cases that would
-; need their own checks -- I won't have time to add them.  
+; Concave polygons, and polygonal perimeters, are supported.
 
 ; The main requirement for supporting concave polygons is that one must know
 ; which side is the inside of the polygon.  For this reason, I'm requiring
 ; the user to list the vertices in counterclockwise order.
 
-; I'm not trying to support overlapping polygons.
-
-; Another extension would be to allow an enclosing polygon -- a perimeter.
+; A perimeter is a border, outside of which the path may not go.
 ; To distinguish between an enclosing polygon and an enclosed polygon, the
 ; order of the vertex list is reversed.  That is, the vertices are listed
 ; in counterclockwise with respect to the "center" of the polygon.  For
@@ -39,6 +35,8 @@
 ; would be counterclockwise when viewed from the enclosed region exterior
 ; to that polygon.  (We may get this extension for free if support for
 ; concave polygons were added.)
+
+; I'm not trying to support overlapping polygons.
 
 ; Before we go any further, try to make sure we don't get bit by roundoff error,
 ; by telling LISP to regard all non-integers as long-floats.  Apparently
@@ -52,7 +50,7 @@
 ; REPRESENTATION OF THE WORLD
 ;*******************************************************************************
 
-; The world is represented by a list of (non-overlapping, convex) polygons,
+; The world is represented by a list of (non-overlapping) polygons,
 ; plus the start and goal points.  All of these are globals.
 
 (declaim (special *polygons* *start* *goal*))
@@ -109,7 +107,7 @@
 ; problem, since we could remove the unneeded vertices at the outset.)  So
 ; we'd need to check if the candidate point were on a non-adjacent side or
 ; vertex, and exclude those.  Checking for that is O(n) in the number of
-; vertices of the polygon.
+; vertices of the polygon.  And besides, it doesn't work for concave polygons.
 
 ; An alternative that's O(1) is to check the direction of the candidate path
 ; vs. the directions of the adjacent sides -- we don't care if the candidate
@@ -587,7 +585,8 @@
 ; Call this in the initialization code, after the goal point and polygon list 
 ; are available, like this:
 ;
-; (setf *potential-successor-pool* (flatten (list goal) *polygons*))
+; (setf *potential-successor-pool*
+;    (remove-duplicates (flatten (list *goal*) *polygons*) :test #'equalp))
 
 ;*******************************************************************************
 ; Generate actual successor list
@@ -643,9 +642,9 @@
 ; days, I'll need to learn how to use macros, so I can dispense with the
 ; "inline"s.
 
-(declaim (inline show-state))
+(declaim (inline show-point))
 
-(defun show-state (point) point)
+(defun show-point (point) point)
 
 ;*******************************************************************************
 ; POLYGONS main program
@@ -665,22 +664,30 @@
 (defun polygons ()
 
    ; The only setup we need to do is to construct the potential successor list.
-   (setf *potential-successor-pool* (flatten (list goal) *polygons*))
+   (setf *potential-successor-pool* 
+      (remove-duplicates (flatten (list *goal*) *polygons*) :test #'equalp))
 
    ; The only argument to Astar-search is the problem list.  Form it in place
    ; inside the call.
    (Astar-search
-      ; First element is the initial state.
-      *start*
-      ; Next is the goal function, which is an equality test of the argument
-      ; against *goal*.
-      #'(lambda (point) (equalp point *goal*))
-      ; Next is the successors function.
-      #'successors
-      ; And the cost function.
-      #'length
-      ; And the heuristic function, which is the length from the arg to *goal*.
-      #'(lambda (point) (len point *goal*))
-      ; Last is the show-state function.
-      #'show-state))
+      (list
+         ; First element is the initial state.
+         *start*
+
+         ; Next is the goal function, which is an equality test of the argument
+         ; against *goal*.
+         #'(lambda (point) (equalp point *goal*))
+
+         ; Next is the successors function.
+         #'successors
+
+         ; And the cost function.
+         #'len
+
+         ; And the heuristic function, which is the length from the arg to
+         ; *goal*.
+         #'(lambda (point) (len point *goal*))
+
+         ; Last is the show-point function.
+         #'show-point)))
 
